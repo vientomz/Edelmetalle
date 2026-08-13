@@ -1,0 +1,69 @@
+name: Edelmetallpreise Nachricht
+
+on:
+  schedule:
+    - cron: '0 8 * * *'
+  workflow_dispatch:
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Edelmetallpreise abrufen und per ntfy schicken
+        run: |
+          hole_preis() {
+            SYMBOL=$1
+            curl -s -A "Mozilla/5.0" "https://query1.finance.yahoo.com/v8/finance/chart/${SYMBOL}" \
+              | jq -r '.chart.result[0].meta | "\(.regularMarketPrice)|\(.previousClose)"'
+          }
+
+          spruch_fuer_diff() {
+            DIFF=$1
+            AD=$(echo "$DIFF" | tr -d '-')
+            if (( $(echo "$AD >= 3" | bc -l) )); then
+              if (( $(echo "$DIFF > 0" | bc -l) )); then
+                echo "Krasser Sprung nach oben! 🚀"
+              else
+                echo "Ordentlicher Einbruch, aufpassen! ⚠️"
+              fi
+            elif (( $(echo "$AD >= 1" | bc -l) )); then
+              if (( $(echo "$DIFF > 0" | bc -l) )); then
+                echo "Spürbar im Plus. 👍"
+              else
+                echo "Merklich runter heute. 👎"
+              fi
+            else
+              echo "Ruhiger Tag, kaum Bewegung. 😐"
+            fi
+          }
+
+          GOLD=$(hole_preis "GC=F")
+          SILBER=$(hole_preis "SI=F")
+          PLATIN=$(hole_preis "PL=F")
+
+          format_metall() {
+            NAME=$1
+            PAAR=$2
+            PREIS=$(echo "$PAAR" | cut -d'|' -f1)
+            VORTAG=$(echo "$PAAR" | cut -d'|' -f2)
+            DIFF=$(echo "$PREIS $VORTAG" | awk '{printf "%.2f", (($1-$2)/$2)*100}')
+            if (( $(echo "$DIFF >= 0" | bc -l) )); then
+              PFEIL="📈 +${DIFF}%"
+            else
+              PFEIL="📉 ${DIFF}%"
+            fi
+            SPRUCH=$(spruch_fuer_diff "$DIFF")
+            echo "${NAME}: \$$(printf "%.2f" "$PREIS") ${PFEIL}
+          ${SPRUCH}
+          "
+          }
+
+          NACHRICHT="💰 Edelmetalle (USD/Feinunze)
+
+          $(format_metall "Gold" "$GOLD")
+          $(format_metall "Silber" "$SILBER")
+          $(format_metall "Platin" "$PLATIN")"
+
+          curl -H "Title: Edelmetallpreise 💰" \
+               -d "$NACHRICHT" \
+               ntfy.sh/vincent-edelmetalle
