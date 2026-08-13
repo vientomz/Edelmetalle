@@ -66,4 +66,4 @@ jobs:
 
           curl -H "Title: Edelmetallpreise 💰" \
                -d "$NACHRICHT" \
-               ntfy.sh/lasse-wetter-8271
+               ntfy.sh/vincent-edelmetalle
