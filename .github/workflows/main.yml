@@ -9,7 +9,8 @@ jobs:
   update:
     runs-on: ubuntu-latest
     steps:
-      - name: Edelmetallpreise abrufen und per ntfy schicken
+      - name: Kurse abrufen
+        id: kurse
         run: |
           hole_preis() {
             SYMBOL=$1
@@ -17,53 +18,42 @@ jobs:
               | jq -r '.chart.result[0].meta | "\(.regularMarketPrice)|\(.previousClose)"'
           }
 
-          spruch_fuer_diff() {
-            DIFF=$1
-            AD=$(echo "$DIFF" | tr -d '-')
-            if (( $(echo "$AD >= 3" | bc -l) )); then
-              if (( $(echo "$DIFF > 0" | bc -l) )); then
-                echo "Krasser Sprung nach oben! 🚀"
-              else
-                echo "Ordentlicher Einbruch, aufpassen! ⚠️"
-              fi
-            elif (( $(echo "$AD >= 1" | bc -l) )); then
-              if (( $(echo "$DIFF > 0" | bc -l) )); then
-                echo "Spürbar im Plus. 👍"
-              else
-                echo "Merklich runter heute. 👎"
-              fi
-            else
-              echo "Ruhiger Tag, kaum Bewegung. 😐"
-            fi
-          }
+          echo "gold=$(hole_preis 'GC=F')" >> "$GITHUB_OUTPUT"
+          echo "silber=$(hole_preis 'SI=F')" >> "$GITHUB_OUTPUT"
+          echo "platin=$(hole_preis 'PL=F')" >> "$GITHUB_OUTPUT"
 
-          GOLD=$(hole_preis "GC=F")
-          SILBER=$(hole_preis "SI=F")
-          PLATIN=$(hole_preis "PL=F")
-
+      - name: Nachricht bauen und verschicken
+        env:
+          GOLD: ${{ steps.kurse.outputs.gold }}
+          SILBER: ${{ steps.kurse.outputs.silber }}
+          PLATIN: ${{ steps.kurse.outputs.platin }}
+        run: |
           format_metall() {
             NAME=$1
             PAAR=$2
-            PREIS=$(echo "$PAAR" | cut -d'|' -f1)
-            VORTAG=$(echo "$PAAR" | cut -d'|' -f2)
-            DIFF=$(echo "$PREIS $VORTAG" | awk '{printf "%.2f", (($1-$2)/$2)*100}')
-            if (( $(echo "$DIFF >= 0" | bc -l) )); then
-              PFEIL="📈 +${DIFF}%"
-            else
-              PFEIL="📉 ${DIFF}%"
-            fi
-            SPRUCH=$(spruch_fuer_diff "$DIFF")
-            echo "${NAME}: \$$(printf "%.2f" "$PREIS") ${PFEIL}
-          ${SPRUCH}
-          "
+            echo "$PAAR" | awk -F'|' -v name="$NAME" '{
+              preis = $1
+              vortag = $2
+              diff = ((preis - vortag) / vortag) * 100
+              ad = diff < 0 ? -diff : diff
+
+              if (diff >= 0) { pfeil = sprintf("📈 +%.2f%%", diff) }
+              else { pfeil = sprintf("📉 %.2f%%", diff) }
+
+              if (ad >= 3) { spruch = (diff > 0) ? "Krasser Sprung nach oben! 🚀" : "Ordentlicher Einbruch, aufpassen! ⚠️" }
+              else if (ad >= 1) { spruch = (diff > 0) ? "Spürbar im Plus. 👍" : "Merklich runter heute. 👎" }
+              else { spruch = "Ruhiger Tag, kaum Bewegung. 😐" }
+
+              printf "%s: $%.2f %s\n%s\n\n", name, preis, pfeil, spruch
+            }'
           }
 
           NACHRICHT="💰 Edelmetalle (USD/Feinunze)
 
-          $(format_metall "Gold" "$GOLD")
-          $(format_metall "Silber" "$SILBER")
-          $(format_metall "Platin" "$PLATIN")"
+          $(format_metall "Gold" "$GOLD")$(format_metall "Silber" "$SILBER")$(format_metall "Platin" "$PLATIN")"
 
-          curl -H "Title: Edelmetallpreise 💰" \
+          echo "$NACHRICHT"
+
+          curl -s -H "Title: Edelmetallpreise 💰" \
                -d "$NACHRICHT" \
-               ntfy.sh/vincent-edelmetalle
+               ntfy.sh/lasse-wetter-8271
